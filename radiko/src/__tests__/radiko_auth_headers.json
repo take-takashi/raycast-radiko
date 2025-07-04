@@ -1,0 +1,20 @@
+{
+  "alt-svc": "h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+  "connection": "keep-alive",
+  "content-length": "25",
+  "content-type": "text/plain",
+  "date": "Fri, 04 Jul 2025 02:15:51 GMT",
+  "server": "nginx",
+  "vary": "Origin",
+  "via": "1.1 google",
+  "x-cloud-trace-context": "f2d947610d999bf42efaeb217d06cc93",
+  "x-frame-options": "SAMEORIGIN",
+  "x-radiko-apptype": "pc",
+  "x-radiko-apptype2": "pc",
+  "x-radiko-authtoken": "IPLJ9f7LVE14PF2e42IYFA",
+  "x-radiko-authwait": "0",
+  "x-radiko-delay": "15",
+  "x-radiko-keylength": "16",
+  "x-radiko-keyoffset": "23",
+  "x-request-id": "uEUWBJpbqYXQmcponaIEGgvGftzKYqVS"
+}

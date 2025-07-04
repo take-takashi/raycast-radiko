@@ -8,7 +8,7 @@
   "license": "MIT",
   "commands": [
     {
-      "name": "fan-zu-biaowo-biao-shi",
+      "name": "sample-list",
       "title": "番組表を表示",
       "description": "radikoの番組表を表示する",
       "mode": "view"
@@ -20,11 +20,15 @@
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.4",
-    "@types/node": "22.13.10",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.13.10",
     "@types/react": "19.0.10",
     "eslint": "^9.22.0",
+    "jest": "^30.0.4",
     "prettier": "^3.5.3",
-    "typescript": "^5.8.2"
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   },
   "scripts": {
     "build": "ray build",
@@ -32,6 +36,7 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the \\`prepublishOnly\\` script and rerun \\`npm publish\\` again.\\nIf you wanted to publish it to the Raycast Store instead, use \\`npm run publish\\` instead.\\n\\n\" && exit 1",
-    "publish": "npx @raycast/api@latest publish"
+    "publish": "npx @raycast/api@latest publish",
+    "test": "jest --config jest.config.js"
   }
 }
