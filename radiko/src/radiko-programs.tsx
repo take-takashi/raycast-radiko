@@ -1,9 +1,9 @@
 import { ActionPanel, Action, Color, Icon, List, showToast, Toast } from "@raycast/api";
 import { useState, useEffect } from "react";
 import {
+  RadikoProgram,
   getRadikoPrograms,
   parseRadikoProgramXml,
-  RadikoProgram,
   Station,
   authenticate1,
   getAuthTokenFromAuthResponse,
@@ -25,62 +25,82 @@ function formatTime(dateTimeString: string): string {
   return `${hour}:${minute}`;
 }
 
-export default function Command() {
-  const [stations, setStations] = useState<Station[]>([]);
-  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+/**
+ * YYYYMMDDHHmmss形式の文字列をDateオブジェクトに変換します。
+ * @param dateTimeString - Radiko APIから取得した時刻文字列
+ * @returns Dateオブジェクト
+ */
+function parseRadikoDateTime(dateTimeString: string): Date {
+  const year = parseInt(dateTimeString.substring(0, 4), 10);
+  const month = parseInt(dateTimeString.substring(4, 6), 10) - 1; // 月は0から始まるため-1する
+  const day = parseInt(dateTimeString.substring(6, 8), 10);
+  const hour = parseInt(dateTimeString.substring(8, 10), 10);
+  const minute = parseInt(dateTimeString.substring(10, 12), 10);
+  const second = parseInt(dateTimeString.substring(12, 14), 10);
+  return new Date(year, month, day, hour, minute, second);
+}
+
+/**
+ * 日付選択用のオプションを表すインターフェース。
+ */
+interface DateOption {
+  value: string; // YYYYMMDD
+  label: string; // M月D日 (曜日)
+}
+
+/**
+ * 今日から過去7日間の日付選択オプションを生成します。
+ * @returns `DateOption`の配列。
+ */
+function generateDateOptions(): DateOption[] {
+  const options: DateOption[] = [];
+  const today = new Date();
+  const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    const value = `${year}${month}${day}`;
+    const label = `${date.getMonth() + 1}月${date.getDate()}日 (${weekdays[date.getDay()]})`;
+
+    options.push({ value, label });
+  }
+  return options;
+}
+
+/**
+ * 特定の放送局の番組表を表示するコンポーネント。
+ * @param props - stationIdを含むプロパティ。
+ */
+function ProgramList(props: { stationId: string }) {
+  const { stationId } = props;
+  const [dates, setDates] = useState<DateOption[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [programs, setPrograms] = useState<RadikoProgram[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchStations() {
-      try {
-        const auth1Response = await authenticate1();
-        const authToken = getAuthTokenFromAuthResponse(auth1Response);
-        const partialKey = getPatialKeyFromAuthResponse(auth1Response);
-        const areaCode = await authenticate2(authToken, partialKey);
-        const stationXml = await getRadikoStationList(areaCode);
-        const parsedStations = parseStationListXml(stationXml);
-        setStations(parsedStations);
-
-        if (parsedStations.length > 0) {
-          setSelectedStationId(parsedStations[0].id);
-        } else {
-          setIsLoading(false);
-          await showToast({
-            style: Toast.Style.Failure,
-            title: "放送局リストの取得に失敗しました",
-          });
-        }
-      } catch (error) {
-        setIsLoading(false);
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "放送局の取得に失敗しました",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+    const dateOptions = generateDateOptions();
+    setDates(dateOptions);
+    if (dateOptions.length > 0) {
+      setSelectedDate(dateOptions[0].value);
     }
-
-    fetchStations();
   }, []);
 
   useEffect(() => {
-    if (!selectedStationId) {
+    if (!stationId || !selectedDate) {
       return;
     }
-
-    // 型ガードで string 型に絞り込まれた値を新しい定数に代入する
-    const stationIdForFetch = selectedStationId;
 
     async function fetchPrograms() {
       setIsLoading(true);
       try {
-        const today = new Date();
-        const date = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(
-          today.getDate(),
-        ).padStart(2, "0")}`;
-
-        const xmlData = await getRadikoPrograms(date, stationIdForFetch);
+        const xmlData = await getRadikoPrograms(selectedDate, stationId);
         const parsedPrograms = parseRadikoProgramXml(xmlData);
         setPrograms(parsedPrograms);
       } catch (error) {
@@ -95,43 +115,102 @@ export default function Command() {
     }
 
     fetchPrograms();
-  }, [selectedStationId]);
+  }, [stationId, selectedDate]);
+
+  const now = new Date();
 
   return (
     <List
       isLoading={isLoading}
+      navigationTitle={`${stationId} の番組表`}
       searchBarPlaceholder="番組を検索..."
       searchBarAccessory={
-        <List.Dropdown tooltip="放送局を選択" value={selectedStationId || ""} onChange={setSelectedStationId}>
-          <List.Dropdown.Section title="放送局">
-            {stations.map((station) => (
-              <List.Dropdown.Item key={station.id} title={station.name} value={station.id} />
+        <List.Dropdown tooltip="日付を選択" value={selectedDate} onChange={setSelectedDate}>
+          <List.Dropdown.Section title="日付">
+            {dates.map((date) => (
+              <List.Dropdown.Item key={date.value} title={date.label} value={date.value} />
             ))}
           </List.Dropdown.Section>
         </List.Dropdown>
       }
     >
-      {programs.map((program) => (
+      {programs.map((program) => {
+        const programEndTime = parseRadikoDateTime(program.to);
+        const isFinished = now > programEndTime;
+        const tagColor = isFinished ? Color.Green : Color.SecondaryText;
+
+        return (
+          <List.Item
+            key={`${program.id}-${program.ft}`}
+            icon={program.img}
+            title={program.title}
+            subtitle=""
+            keywords={program.pfm ? program.pfm.split(/[、, ]+/) : []}
+            accessories={[
+              { text: program.pfm },
+              {
+                icon: Icon.Clock,
+                tag: { value: formatTime(program.ft), color: tagColor },
+              },
+            ]}
+            actions={
+              <ActionPanel>
+                <Action.CopyToClipboard title="番組名をコピー" content={program.title} />
+                {/* TODO: 録音アクションなどをここに追加 */}
+              </ActionPanel>
+            }
+          />
+        );
+      })}
+    </List>
+  );
+}
+
+export default function Command() {
+  const [stations, setStations] = useState<Station[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchStations() {
+      try {
+        const auth1Response = await authenticate1();
+        const authToken = getAuthTokenFromAuthResponse(auth1Response);
+        const partialKey = getPatialKeyFromAuthResponse(auth1Response);
+        const areaCode = await authenticate2(authToken, partialKey);
+        const stationXml = await getRadikoStationList(areaCode);
+        const parsedStations = parseStationListXml(stationXml);
+        setStations(parsedStations);
+        if (parsedStations.length === 0) {
+          await showToast({
+            style: Toast.Style.Failure,
+            title: "放送局リストの取得に失敗しました",
+          });
+        }
+      } catch (error) {
+        setIsLoading(false);
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "放送局の取得に失敗しました",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchStations();
+  }, []);
+
+  return (
+    <List isLoading={isLoading} searchBarPlaceholder="放送局を検索...">
+      {stations.map((station) => (
         <List.Item
-          key={`${program.id}-${program.ft}`}
-          icon={program.img}
-          title={program.title}
-          subtitle="" // subtitleを空にして、accessoriesの表示領域を確保します
-          // パーソナリティ名をスペースや読点などで分割し、検索キーワードとして追加
-          keywords={program.pfm ? program.pfm.split(/[、, ]+/) : []}
-          accessories={[
-            { text: program.pfm },
-            // 時間表記を色付きのtagとして表示し、stationNameを削除
-            // TODO: 放送終了してたらタグの色を変えたい
-            {
-              icon: Icon.Clock,
-              tag: { value: `${formatTime(program.ft)}`, color: Color.SecondaryText },
-            },
-          ]}
+          key={station.id}
+          title={station.name}
+          accessories={[{ text: station.id }]}
           actions={
             <ActionPanel>
-              <Action.CopyToClipboard title="番組名をコピー" content={program.title} />
-              {/* TODO: 録音アクションなどをここに追加 */}
+              <Action.Push title="番組表を見る" icon={Icon.List} target={<ProgramList stationId={station.id} />} />
             </ActionPanel>
           }
         />
