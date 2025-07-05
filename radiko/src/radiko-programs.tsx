@@ -1,4 +1,4 @@
-import { ActionPanel, Action, Color, Icon, List, showToast, Toast } from "@raycast/api";
+import { ActionPanel, Action, Color, Form, Icon, List, showToast, Toast, useNavigation } from "@raycast/api";
 import { useState, useEffect } from "react";
 import {
   RadikoProgram,
@@ -77,17 +77,17 @@ function generateDateOptions(): DateOption[] {
  * 特定の放送局の番組表を表示するコンポーネント。
  * @param props - stationIdを含むプロパティ。
  */
-function ProgramList(props: { stationId: string }) {
-  const { stationId } = props;
+function ProgramList(props: { stationId: string; date: string }) {
+  const { stationId, date: initialDate } = props;
   const [dates, setDates] = useState<DateOption[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate);
   const [programs, setPrograms] = useState<RadikoProgram[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const dateOptions = generateDateOptions();
     setDates(dateOptions);
-    if (dateOptions.length > 0) {
+    if (!dateOptions.some((d) => d.value === initialDate)) {
       setSelectedDate(dateOptions[0].value);
     }
   }, []);
@@ -166,31 +166,42 @@ function ProgramList(props: { stationId: string }) {
   );
 }
 
+interface FormValues {
+  stationId: string;
+  date: string;
+}
+
 export default function Command() {
+  const { push } = useNavigation();
   const [stations, setStations] = useState<Station[]>([]);
+  const [dates, setDates] = useState<DateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchStations() {
+    async function fetchInitialData() {
       try {
+        const dateOptions = generateDateOptions();
+        setDates(dateOptions);
+
         const auth1Response = await authenticate1();
         const authToken = getAuthTokenFromAuthResponse(auth1Response);
         const partialKey = getPatialKeyFromAuthResponse(auth1Response);
         const areaCode = await authenticate2(authToken, partialKey);
         const stationXml = await getRadikoStationList(areaCode);
         const parsedStations = parseStationListXml(stationXml);
-        setStations(parsedStations);
+
         if (parsedStations.length === 0) {
           await showToast({
             style: Toast.Style.Failure,
-            title: "放送局リストの取得に失敗しました",
+            title: "利用可能な放送局が見つかりませんでした",
           });
         }
+
+        setStations(parsedStations);
       } catch (error) {
-        setIsLoading(false);
         await showToast({
           style: Toast.Style.Failure,
-          title: "放送局の取得に失敗しました",
+          title: "初期データの取得に失敗しました",
           message: error instanceof Error ? error.message : String(error),
         });
       } finally {
@@ -198,23 +209,39 @@ export default function Command() {
       }
     }
 
-    fetchStations();
+    fetchInitialData();
   }, []);
 
+  function handleSubmit(values: FormValues) {
+    if (!values.stationId || !values.date) {
+      showToast({ style: Toast.Style.Failure, title: "放送局と日付を選択してください" });
+      return;
+    }
+    push(<ProgramList stationId={values.stationId} date={values.date} />);
+  }
+
   return (
-    <List isLoading={isLoading} searchBarPlaceholder="放送局を検索...">
-      {stations.map((station) => (
-        <List.Item
-          key={station.id}
-          title={station.name}
-          accessories={[{ text: station.id }]}
-          actions={
-            <ActionPanel>
-              <Action.Push title="番組表を見る" icon={Icon.List} target={<ProgramList stationId={station.id} />} />
-            </ActionPanel>
-          }
-        />
-      ))}
-    </List>
+    <Form
+      isLoading={isLoading}
+      actions={
+        <ActionPanel>
+          <Action.SubmitForm title="番組表を見る" icon={Icon.List} onSubmit={handleSubmit} />
+        </ActionPanel>
+      }
+    >
+      <Form.Dropdown id="stationId" title="放送局">
+        {stations.map((station) => (
+          <Form.Dropdown.Item key={station.id} value={station.id} title={station.name} />
+        ))}
+      </Form.Dropdown>
+      <Form.Dropdown id="date" title="日付">
+        {dates.map((date) => (
+          <Form.Dropdown.Item key={date.value} value={date.value} title={date.label} />
+        ))}
+      </Form.Dropdown>
+    </Form>
   );
 }
+
+// TODO: 録音機能の実装
+// TODO: 局選択はリスト+検索バーの日付選択から、次の画面で番組表の表示+検索バーの日付選択にできるか？
