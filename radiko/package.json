@@ -2,14 +2,14 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "radiko",
   "title": "radiko",
-  "description": "radikoを操作したい",
+  "description": "radikoをRaycastから利用するExtensionです。",
   "icon": "extension-icon.png",
   "author": "nakamizo_takashi",
   "license": "MIT",
   "commands": [
     {
-      "name": "sample-list",
-      "title": "番組表を表示",
+      "name": "radiko-programs",
+      "title": "番組表を表示（仮：TBS）",
       "description": "radikoの番組表を表示する",
       "mode": "view"
     }

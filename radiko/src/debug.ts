@@ -7,6 +7,7 @@ import {
   getRadikoStationList,
   parseStationListXml,
   getRadikoPrograms,
+  parseRadikoProgramXml,
 } from "./radiko-guide";
 
 export async function debug() {
@@ -37,7 +38,10 @@ export async function debug() {
   const stationId = "TBS"; // TBSラジオのID
   const date = "20250630";
   const programsXml = await getRadikoPrograms(date, stationId);
-  console.log("Programs XML:", programsXml);
+  //console.log("Programs XML:", programsXml);
+
+  const programs = parseRadikoProgramXml(programsXml);
+  console.log("Programs:", programs);
 
   // 番組の保存テスト
   //recordRadikoProgram(auth_token, "TBS", "20250701010000", "20250701030000"); // 動かない

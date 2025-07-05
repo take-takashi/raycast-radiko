@@ -2,7 +2,8 @@ import { ActionPanel, Action, Icon, List } from "@raycast/api";
 import { writeFile } from "fs/promises";
 import { spawn } from "child_process";
 import { XMLParser } from "fast-xml-parser";
-import { stat } from "fs";
+
+// TODO: ファイル名を変えたい（というクラス化したい）
 
 const AUTH_KEY = "bcd151073c03b352e1ef2fd66c32209da9ca0afa";
 
@@ -161,8 +162,49 @@ export async function getRadikoPrograms(date: string, stationId: string): Promis
   }
 
   return await response.text();
-  // TODO: XMLを成形したい。
-  // 画像: img, 番組名: title, 開始時間: ft, （ラジオ局名: stations.name）
+}
+
+export interface RadikoProgram {
+  id: string; // 番組ID
+  title: string; // 番組名
+  ft: string; // 開始時間
+  to: string; // 終了時間
+  img: string; // 画像URL
+  pfm: string; // パーソナリティ名
+  stationId: string; // 放送局ID
+  stationName: string; // 放送局名
+}
+
+/**
+ * 番組情報のXMLをパースして、Programオブジェクトの配列に変換します。
+ * @param xmlData - 番組情報を含むXML文字列。
+ * @returns パースされた`Program`オブジェクトの配列。
+ */
+export function parseRadikoProgramXml(xmlData: string): RadikoProgram[] {
+  const parser = new XMLParser({
+    ignoreAttributes: false, // ft, to, dur などの属性をパースするために必要
+  });
+  const jsonObj = parser.parse(xmlData);
+
+  const stationId = jsonObj?.radiko?.stations?.station?.["@_id"] || "Unknown Station ID";
+  const stationName = jsonObj?.radiko?.stations?.station?.name || "Unknown Station";
+
+  const programNodes = jsonObj?.radiko?.stations?.station?.progs?.prog;
+
+  if (!programNodes) return [];
+
+  const programs = Array.isArray(programNodes) ? programNodes : [programNodes];
+
+  return programs.map((p) => ({
+    id: p["@_id"], // 番組ID
+    title: p.title,
+    ft: p["@_ft"], // 開始時間
+    to: p["@_to"], // 終了時間
+    img: p.img, // 画像URL
+    pfm: p.pfm, // パーソナリティ
+    stationId: stationId, // 放送局ID
+    stationName: stationName, // 放送局名
+  }));
 }
 
 /**
