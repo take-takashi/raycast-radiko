@@ -1,5 +1,17 @@
-import { ActionPanel, Action, Color, Form, Icon, List, showToast, Toast, useNavigation } from "@raycast/api";
+import {
+  ActionPanel,
+  Action,
+  Color,
+  Form,
+  Icon,
+  List,
+  showToast,
+  Toast,
+  useNavigation,
+  getPreferenceValues,
+} from "@raycast/api";
 import { useState, useEffect } from "react";
+import { homedir } from "os";
 import {
   RadikoProgram,
   getRadikoPrograms,
@@ -11,7 +23,13 @@ import {
   authenticate2,
   getRadikoStationList,
   parseStationListXml,
+  recordRadikoProgram,
 } from "./radiko-guide";
+
+interface Preferences {
+  saveDirectory: string;
+  ffmpegPath: string;
+}
 
 /**
  * YYYYMMDDHHmmss形式の時刻文字列から HH:mm 形式の文字列を返します。
@@ -77,8 +95,8 @@ function generateDateOptions(): DateOption[] {
  * 特定の放送局の番組表を表示するコンポーネント。
  * @param props - stationIdを含むプロパティ。
  */
-function ProgramList(props: { stationId: string; date: string }) {
-  const { stationId, date: initialDate } = props;
+function ProgramList(props: { stationId: string; date: string; authToken: string }) {
+  const { stationId, date: initialDate, authToken } = props;
   const [dates, setDates] = useState<DateOption[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(initialDate);
   const [programs, setPrograms] = useState<RadikoProgram[]>([]);
@@ -155,8 +173,42 @@ function ProgramList(props: { stationId: string; date: string }) {
             ]}
             actions={
               <ActionPanel>
+                {isFinished && (
+                  <Action
+                    title="この番組を録音する"
+                    icon={Icon.Download}
+                    onAction={async () => {
+                      const toast = await showToast({
+                        style: Toast.Style.Animated,
+                        title: "録音を開始しています...",
+                      });
+                      try {
+                        const preferences = getPreferenceValues<Preferences>();
+                        let saveDirectory = preferences.saveDirectory;
+                        if (saveDirectory.startsWith("~")) {
+                          saveDirectory = saveDirectory.replace("~", homedir());
+                        }
+
+                        const outputPath = await recordRadikoProgram(
+                          authToken,
+                          program.stationId,
+                          program.ft,
+                          program.to,
+                          saveDirectory,
+                          preferences.ffmpegPath,
+                        );
+                        toast.style = Toast.Style.Success;
+                        toast.title = `「${program.title}」の録音が完了しました`;
+                        toast.message = `保存先: ${outputPath}`;
+                      } catch (error) {
+                        toast.style = Toast.Style.Failure;
+                        toast.title = "録音に失敗しました";
+                        toast.message = error instanceof Error ? error.message : String(error);
+                      }
+                    }}
+                  />
+                )}
                 <Action.CopyToClipboard title="番組名をコピー" content={program.title} />
-                {/* TODO: 録音アクションなどをここに追加 */}
               </ActionPanel>
             }
           />
@@ -176,6 +228,7 @@ export default function Command() {
   const [stations, setStations] = useState<Station[]>([]);
   const [dates, setDates] = useState<DateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [authToken, setAuthToken] = useState<string>("");
 
   useEffect(() => {
     async function fetchInitialData() {
@@ -185,6 +238,7 @@ export default function Command() {
 
         const auth1Response = await authenticate1();
         const authToken = getAuthTokenFromAuthResponse(auth1Response);
+        setAuthToken(authToken);
         const partialKey = getPatialKeyFromAuthResponse(auth1Response);
         const areaCode = await authenticate2(authToken, partialKey);
         const stationXml = await getRadikoStationList(areaCode);
@@ -217,7 +271,7 @@ export default function Command() {
       showToast({ style: Toast.Style.Failure, title: "放送局と日付を選択してください" });
       return;
     }
-    push(<ProgramList stationId={values.stationId} date={values.date} />);
+    push(<ProgramList stationId={values.stationId} date={values.date} authToken={authToken} />);
   }
 
   return (
@@ -243,5 +297,4 @@ export default function Command() {
   );
 }
 
-// TODO: 録音機能の実装
 // TODO: 局選択はリスト+検索バーの日付選択から、次の画面で番組表の表示+検索バーの日付選択にできるか？

@@ -14,6 +14,24 @@
       "mode": "view"
     }
   ],
+  "preferences": [
+    {
+      "name": "saveDirectory",
+      "title": "録音ファイルの保存先",
+      "description": "録音したRadiko番組を保存するディレクトリのパスを指定してください。デフォルトはダウンロードフォルダです。",
+      "type": "directory",
+      "required": false,
+      "default": "~/Downloads"
+    },
+    {
+      "name": "ffmpegPath",
+      "title": "FFmpeg Path",
+      "description": "Full path to the ffmpeg executable. If not set, it will default to 'ffmpeg' and search in PATH.",
+      "type": "textfield",
+      "required": false,
+      "default": "ffmpeg"
+    }
+  ],
   "dependencies": {
     "@raycast/api": "^1.100.3",
     "@raycast/utils": "^1.17.0",

@@ -1,5 +1,6 @@
 import { ActionPanel, Action, Icon, List } from "@raycast/api";
 import { writeFile } from "fs/promises";
+import { join } from "path";
 import { spawn } from "child_process";
 import { XMLParser } from "fast-xml-parser";
 
@@ -217,7 +218,8 @@ export function parseRadikoProgramXml(xmlData: string): RadikoProgram[] {
  * @param station_id - 放送局ID (例: "TBS")。
  * @param start_time - 録音開始時間 (形式: YYYYMMDDHHmmss)。
  * @param end_time - 録音終了時間 (形式: YYYYMMDDHHmmss)。
- * @returns 録音が正常に完了した場合に解決される`Promise<void>`。
+ * @param save_directory - ファイルを保存するディレクトリのパス。
+ * @returns 録音されたファイルのフルパスを含む`Promise<string>`。
  * @throws ffmpegプロセスの実行に失敗した場合、または0以外のコードで終了した場合にエラーをスローします。
  */
 export async function recordRadikoProgram(
@@ -225,11 +227,15 @@ export async function recordRadikoProgram(
   station_id: string,
   start_time: string,
   end_time: string,
-): Promise<void> {
+  save_directory: string,
+  ffmpeg_path: string,
+): Promise<string> {
   const url = `https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=${station_id}&l=15&ft=${start_time}&to=${end_time}`;
 
-  return new Promise<void>((resolve, reject) => {
-    const outputFilename = `${station_id}_${start_time}.m4a`;
+  return new Promise<string>((resolve, reject) => {
+    const filename = `${station_id}_${start_time}.m4a`;
+    const outputPath = join(save_directory, filename);
+    const ffmpegCommand = ffmpeg_path || "ffmpeg";
     const args = [
       // "-loglevel",
       // "error",
@@ -243,10 +249,10 @@ export async function recordRadikoProgram(
       "aac_adtstoasc",
       "-acodec",
       "copy",
-      outputFilename,
+      outputPath,
     ];
 
-    const ffmpeg = spawn("ffmpeg", args);
+    const ffmpeg = spawn(ffmpegCommand, args);
 
     ffmpeg.stderr.on("data", (data) => {
       // ffmpegは進捗をstderrに出力することが多いため、ここではエラーとして扱わずログ出力に留めます。
@@ -255,8 +261,8 @@ export async function recordRadikoProgram(
 
     ffmpeg.on("close", (code) => {
       if (code === 0) {
-        console.log(`録音が完了しました: ${outputFilename}`);
-        resolve();
+        console.log(`録音が完了しました: ${outputPath}`);
+        resolve(outputPath);
       } else {
         reject(new Error(`ffmpegプロセスがエラーコード ${code} で終了しました。`));
       }
