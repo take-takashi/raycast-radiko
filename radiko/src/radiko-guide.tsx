@@ -225,6 +225,7 @@ export function parseRadikoProgramXml(xmlData: string): RadikoProgram[] {
 export async function recordRadikoProgram(
   auth_token: string,
   station_id: string,
+  program_title: string,
   start_time: string,
   end_time: string,
   save_directory: string,
@@ -233,7 +234,9 @@ export async function recordRadikoProgram(
   const url = `https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=${station_id}&l=15&ft=${start_time}&to=${end_time}`;
 
   return new Promise<string>((resolve, reject) => {
-    const filename = `${station_id}_${start_time}.m4a`;
+    // ファイル名として使えない文字を `_` に置換
+    const safe_program_title = program_title.replace(/[\\/:*?"<>|]/g, "_");
+    const filename = `${station_id}_${safe_program_title}_${start_time}.m4a`;
     const outputPath = join(save_directory, filename);
     const ffmpegCommand = ffmpeg_path || "ffmpeg";
     const args = [

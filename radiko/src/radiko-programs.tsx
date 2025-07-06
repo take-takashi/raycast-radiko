@@ -192,6 +192,7 @@ function ProgramList(props: { stationId: string; date: string; authToken: string
                         const outputPath = await recordRadikoProgram(
                           authToken,
                           program.stationId,
+                          program.title,
                           program.ft,
                           program.to,
                           saveDirectory,
