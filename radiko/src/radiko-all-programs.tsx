@@ -1,3 +1,4 @@
+
 import {
   ActionPanel,
   Action,
@@ -6,8 +7,11 @@ import {
   List,
   showToast,
   Toast,
+  getPreferenceValues,
 } from "@raycast/api";
 import { useState, useEffect } from "react";
+import { homedir } from "os";
+import { join } from "path";
 import {
   RadikoProgram,
   getRadikoPrograms,
@@ -19,7 +23,13 @@ import {
   authenticate2,
   getRadikoStationList,
   parseStationListXml,
+  recordRadikoProgram,
 } from "./radiko-guide";
+
+interface Preferences {
+  saveDirectory: string;
+  ffmpegPath: string;
+}
 
 /**
  * YYYYMMDDHHmmss形式の時刻文字列から HH:mm 形式の文字列を返します。
@@ -71,6 +81,7 @@ export default function Command() {
   const [stations, setStations] = useState<Station[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
+  const [authToken, setAuthToken] = useState<string>("");
 
   const sevenDays = getPastSevenDays();
 
@@ -79,9 +90,10 @@ export default function Command() {
       setIsLoading(true);
       try {
         const auth1Response = await authenticate1();
-        const authToken = getAuthTokenFromAuthResponse(auth1Response);
+        const token = getAuthTokenFromAuthResponse(auth1Response);
+        setAuthToken(token);
         const partialKey = getPatialKeyFromAuthResponse(auth1Response);
-        const areaCode = await authenticate2(authToken, partialKey);
+        const areaCode = await authenticate2(token, partialKey);
         const stationXml = await getRadikoStationList(areaCode);
         const parsedStations = parseStationListXml(stationXml);
         setStations(parsedStations);
@@ -124,6 +136,49 @@ export default function Command() {
 
     fetchAllPrograms();
   }, [selectedDate]);
+
+  async function handleRecord(program: RadikoProgram) {
+    if (!authToken) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "認証トークンがありません",
+        message: "番組表を再読み込みしてください。",
+      });
+      return;
+    }
+
+    const toast = await showToast({
+      style: Toast.Style.Animated,
+      title: "録音を開始します...",
+      message: `${program.title}`,
+    });
+
+    try {
+      const preferences = getPreferenceValues<Preferences>();
+      let saveDirectory = preferences.saveDirectory;
+      if (saveDirectory.startsWith("~")) {
+        saveDirectory = saveDirectory.replace("~", homedir());
+      }
+
+      const outputPath = await recordRadikoProgram(
+        authToken,
+        program.stationId,
+        program.title,
+        program.ft,
+        program.to,
+        saveDirectory,
+        preferences.ffmpegPath
+      );
+
+      toast.style = Toast.Style.Success;
+      toast.title = "録音が完了しました";
+      toast.message = `ファイル: ${outputPath}`;
+    } catch (error) {
+      toast.style = Toast.Style.Failure;
+      toast.title = "録音に失敗しました";
+      toast.message = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   const now = new Date();
 
@@ -182,6 +237,11 @@ export default function Command() {
                 ]}
                 actions={
                   <ActionPanel>
+                    <Action
+                      title="この番組を録音する"
+                      icon={Icon.Download}
+                      onAction={() => handleRecord(program)}
+                    />
                     <Action.CopyToClipboard title="番組名をコピー" content={program.title} />
                   </ActionPanel>
                 }
