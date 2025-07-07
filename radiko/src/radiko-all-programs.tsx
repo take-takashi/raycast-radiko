@@ -1,4 +1,3 @@
-
 import {
   ActionPanel,
   Action,
@@ -49,18 +48,31 @@ function parseRadikoDateTime(dateTimeString: string): Date {
   return new Date(year, month, day, hour, minute, second);
 }
 
-function getTodayDateString(): string {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
+function formatDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
     return `${year}${month}${day}`;
+}
+
+function getPastSevenDays(): Date[] {
+  const dates: Date[] = [];
+  const today = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    dates.push(date);
+  }
+  return dates;
 }
 
 export default function Command() {
   const [programsByStation, setProgramsByStation] = useState<Map<string, RadikoProgram[]>>(new Map());
   const [stations, setStations] = useState<Station[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
+
+  const sevenDays = getPastSevenDays();
 
   useEffect(() => {
     async function fetchAllPrograms() {
@@ -82,9 +94,8 @@ export default function Command() {
           return;
         }
 
-        const today = getTodayDateString();
         const allProgramsPromises = parsedStations.map(async (station) => {
-          const xmlData = await getRadikoPrograms(today, station.id);
+          const xmlData = await getRadikoPrograms(selectedDate, station.id);
           const programs = parseRadikoProgramXml(xmlData);
           return { stationId: station.id, stationName: station.name, programs };
         });
@@ -112,15 +123,43 @@ export default function Command() {
     }
 
     fetchAllPrograms();
-  }, []);
+  }, [selectedDate]);
 
   const now = new Date();
+
+  const navigationTitle = () => {
+    const today = formatDate(new Date());
+    if (selectedDate === today) {
+      return "今日の番組表 (全放送局)";
+    }
+    const year = parseInt(selectedDate.substring(0, 4), 10);
+    const month = parseInt(selectedDate.substring(4, 6), 10) - 1;
+    const day = parseInt(selectedDate.substring(6, 8), 10);
+    const date = new Date(year, month, day);
+    const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
+    return `${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})の番組表 (全放送局)`;
+  }
 
   return (
     <List
       isLoading={isLoading}
-      navigationTitle="今日の番組表 (全放送局)"
+      navigationTitle={navigationTitle()}
       searchBarPlaceholder="番組を検索..."
+      searchBarAccessory={
+        <List.Dropdown
+          tooltip="日付を選択"
+          value={selectedDate}
+          onChange={(newValue) => setSelectedDate(newValue)}
+        >
+          {sevenDays.map((date, index) => {
+            const dateString = formatDate(date);
+            const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+            const isToday = formatDate(new Date()) === dateString;
+            const label = isToday ? `今日 ${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})` : `${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})`;
+            return <List.Dropdown.Item key={index} title={label} value={dateString} />;
+          })}
+        </List.Dropdown>
+      }
     >
       {Array.from(programsByStation.entries()).map(([stationName, programs]) => (
         <List.Section key={stationName} title={stationName}>
