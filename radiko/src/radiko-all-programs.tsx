@@ -1,30 +1,7 @@
-
-import {
-  ActionPanel,
-  Action,
-  Color,
-  Icon,
-  List,
-  showToast,
-  Toast,
-  getPreferenceValues,
-} from "@raycast/api";
+import { ActionPanel, Action, Color, Icon, List, showToast, Toast, getPreferenceValues } from "@raycast/api";
 import { useState, useEffect } from "react";
 import { homedir } from "os";
-import { join } from "path";
-import {
-  RadikoProgram,
-  getRadikoPrograms,
-  parseRadikoProgramXml,
-  Station,
-  authenticate1,
-  getAuthTokenFromAuthResponse,
-  getPatialKeyFromAuthResponse,
-  authenticate2,
-  getRadikoStationList,
-  parseStationListXml,
-  recordRadikoProgram,
-} from "./radiko-guide";
+import { RadikoProgram, RadikoClient } from "./radiko-client";
 
 interface Preferences {
   saveDirectory: string;
@@ -59,10 +36,10 @@ function parseRadikoDateTime(dateTimeString: string): Date {
 }
 
 function formatDate(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}${month}${day}`;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
 }
 
 function getPastSevenDays(): Date[] {
@@ -78,10 +55,9 @@ function getPastSevenDays(): Date[] {
 
 export default function Command() {
   const [programsByStation, setProgramsByStation] = useState<Map<string, RadikoProgram[]>>(new Map());
-  const [stations, setStations] = useState<Station[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
-  const [authToken, setAuthToken] = useState<string>("");
+  const [radikoClient, setRadikoClient] = useState<RadikoClient | null>(null);
 
   const sevenDays = getPastSevenDays();
 
@@ -89,14 +65,12 @@ export default function Command() {
     async function fetchAllPrograms() {
       setIsLoading(true);
       try {
-        const auth1Response = await authenticate1();
-        const token = getAuthTokenFromAuthResponse(auth1Response);
-        setAuthToken(token);
-        const partialKey = getPatialKeyFromAuthResponse(auth1Response);
-        const areaCode = await authenticate2(token, partialKey);
-        const stationXml = await getRadikoStationList(areaCode);
-        const parsedStations = parseStationListXml(stationXml);
-        setStations(parsedStations);
+        const preferences = getPreferenceValues<Preferences>();
+        const client = new RadikoClient(preferences.ffmpegPath);
+        await client.authenticate();
+        setRadikoClient(client);
+
+        const parsedStations = await client.getStationList();
 
         if (parsedStations.length === 0) {
           await showToast({
@@ -107,22 +81,20 @@ export default function Command() {
         }
 
         const allProgramsPromises = parsedStations.map(async (station) => {
-          const xmlData = await getRadikoPrograms(selectedDate, station.id);
-          const programs = parseRadikoProgramXml(xmlData);
+          const programs = await client.getPrograms(station.id, selectedDate);
           return { stationId: station.id, stationName: station.name, programs };
         });
 
         const results = await Promise.all(allProgramsPromises);
 
         const programsMap = new Map<string, RadikoProgram[]>();
-        results.forEach(result => {
-            if(result.programs.length > 0) {
-                programsMap.set(result.stationName, result.programs);
-            }
+        results.forEach((result) => {
+          if (result.programs.length > 0) {
+            programsMap.set(result.stationName, result.programs);
+          }
         });
 
         setProgramsByStation(programsMap);
-
       } catch (error) {
         await showToast({
           style: Toast.Style.Failure,
@@ -138,10 +110,10 @@ export default function Command() {
   }, [selectedDate]);
 
   async function handleRecord(program: RadikoProgram) {
-    if (!authToken) {
+    if (!radikoClient) {
       await showToast({
         style: Toast.Style.Failure,
-        title: "認証トークンがありません",
+        title: "Radikoクライアントが初期化されていません",
         message: "番組表を再読み込みしてください。",
       });
       return;
@@ -160,14 +132,12 @@ export default function Command() {
         saveDirectory = saveDirectory.replace("~", homedir());
       }
 
-      const outputPath = await recordRadikoProgram(
-        authToken,
+      const outputPath = await radikoClient.recordProgram(
         program.stationId,
         program.title,
         program.ft,
         program.to,
         saveDirectory,
-        preferences.ffmpegPath
       );
 
       toast.style = Toast.Style.Success;
@@ -191,9 +161,9 @@ export default function Command() {
     const month = parseInt(selectedDate.substring(4, 6), 10) - 1;
     const day = parseInt(selectedDate.substring(6, 8), 10);
     const date = new Date(year, month, day);
-    const dayOfWeek = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
+    const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
     return `${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})の番組表 (全放送局)`;
-  }
+  };
 
   return (
     <List
@@ -201,16 +171,14 @@ export default function Command() {
       navigationTitle={navigationTitle()}
       searchBarPlaceholder="番組を検索..."
       searchBarAccessory={
-        <List.Dropdown
-          tooltip="日付を選択"
-          value={selectedDate}
-          onChange={(newValue) => setSelectedDate(newValue)}
-        >
+        <List.Dropdown tooltip="日付を選択" value={selectedDate} onChange={(newValue) => setSelectedDate(newValue)}>
           {sevenDays.map((date, index) => {
             const dateString = formatDate(date);
             const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
             const isToday = formatDate(new Date()) === dateString;
-            const label = isToday ? `今日 ${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})` : `${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})`;
+            const label = isToday
+              ? `今日 ${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})`
+              : `${date.getMonth() + 1}/${date.getDate()}(${dayOfWeek})`;
             return <List.Dropdown.Item key={index} title={label} value={dateString} />;
           })}
         </List.Dropdown>
@@ -237,11 +205,7 @@ export default function Command() {
                 ]}
                 actions={
                   <ActionPanel>
-                    <Action
-                      title="この番組を録音する"
-                      icon={Icon.Download}
-                      onAction={() => handleRecord(program)}
-                    />
+                    <Action title="この番組を録音する" icon={Icon.Download} onAction={() => handleRecord(program)} />
                     <Action.CopyToClipboard title="番組名をコピー" content={program.title} />
                   </ActionPanel>
                 }

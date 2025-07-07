@@ -12,19 +12,7 @@ import {
 } from "@raycast/api";
 import { useState, useEffect } from "react";
 import { homedir } from "os";
-import {
-  RadikoProgram,
-  getRadikoPrograms,
-  parseRadikoProgramXml,
-  Station,
-  authenticate1,
-  getAuthTokenFromAuthResponse,
-  getPatialKeyFromAuthResponse,
-  authenticate2,
-  getRadikoStationList,
-  parseStationListXml,
-  recordRadikoProgram,
-} from "./radiko-guide";
+import { RadikoProgram, Station, RadikoClient } from "./radiko-client";
 
 interface Preferences {
   saveDirectory: string;
@@ -95,8 +83,8 @@ function generateDateOptions(): DateOption[] {
  * 特定の放送局の番組表を表示するコンポーネント。
  * @param props - stationIdを含むプロパティ。
  */
-function ProgramList(props: { stationId: string; date: string; authToken: string }) {
-  const { stationId, date: initialDate, authToken } = props;
+function ProgramList(props: { stationId: string; date: string; radikoClient: RadikoClient }) {
+  const { stationId, date: initialDate, radikoClient } = props;
   const [dates, setDates] = useState<DateOption[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(initialDate);
   const [programs, setPrograms] = useState<RadikoProgram[]>([]);
@@ -118,8 +106,7 @@ function ProgramList(props: { stationId: string; date: string; authToken: string
     async function fetchPrograms() {
       setIsLoading(true);
       try {
-        const xmlData = await getRadikoPrograms(selectedDate, stationId);
-        const parsedPrograms = parseRadikoProgramXml(xmlData);
+        const parsedPrograms = await radikoClient.getPrograms(stationId, selectedDate);
         setPrograms(parsedPrograms);
       } catch (error) {
         await showToast({
@@ -189,14 +176,12 @@ function ProgramList(props: { stationId: string; date: string; authToken: string
                           saveDirectory = saveDirectory.replace("~", homedir());
                         }
 
-                        const outputPath = await recordRadikoProgram(
-                          authToken,
+                        const outputPath = await radikoClient.recordProgram(
                           program.stationId,
                           program.title,
                           program.ft,
                           program.to,
                           saveDirectory,
-                          preferences.ffmpegPath,
                         );
                         toast.style = Toast.Style.Success;
                         toast.title = `「${program.title}」の録音が完了しました`;
@@ -229,7 +214,7 @@ export default function Command() {
   const [stations, setStations] = useState<Station[]>([]);
   const [dates, setDates] = useState<DateOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [authToken, setAuthToken] = useState<string>("");
+  const [radikoClient, setRadikoClient] = useState<RadikoClient | null>(null);
 
   useEffect(() => {
     async function fetchInitialData() {
@@ -237,13 +222,12 @@ export default function Command() {
         const dateOptions = generateDateOptions();
         setDates(dateOptions);
 
-        const auth1Response = await authenticate1();
-        const authToken = getAuthTokenFromAuthResponse(auth1Response);
-        setAuthToken(authToken);
-        const partialKey = getPatialKeyFromAuthResponse(auth1Response);
-        const areaCode = await authenticate2(authToken, partialKey);
-        const stationXml = await getRadikoStationList(areaCode);
-        const parsedStations = parseStationListXml(stationXml);
+        const preferences = getPreferenceValues<Preferences>();
+        const client = new RadikoClient(preferences.ffmpegPath);
+        await client.authenticate();
+        setRadikoClient(client);
+
+        const parsedStations = await client.getStationList();
 
         if (parsedStations.length === 0) {
           await showToast({
@@ -272,7 +256,11 @@ export default function Command() {
       showToast({ style: Toast.Style.Failure, title: "放送局と日付を選択してください" });
       return;
     }
-    push(<ProgramList stationId={values.stationId} date={values.date} authToken={authToken} />);
+    if (!radikoClient) {
+      showToast({ style: Toast.Style.Failure, title: "Radikoクライアントが初期化されていません" });
+      return;
+    }
+    push(<ProgramList stationId={values.stationId} date={values.date} radikoClient={radikoClient} />);
   }
 
   return (
