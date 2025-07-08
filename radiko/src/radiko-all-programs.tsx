@@ -133,8 +133,10 @@ export default function Command() {
       }
 
       const outputPath = await radikoClient.recordProgram(
+        program,
         program.stationId,
         program.title,
+        program.img, // new param
         program.ft,
         program.to,
         saveDirectory,

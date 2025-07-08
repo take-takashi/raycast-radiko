@@ -3,11 +3,6 @@ import { join } from "path";
 import { spawn } from "child_process";
 import { XMLParser } from "fast-xml-parser";
 
-// TODO: ファイル名を変えたい（というクラス化したい）
-// → RadikoClientクラスにリファクタリングしました。
-//   このファイルを `src/radiko-client.ts` のような名前に変更し、
-//   利用側で `new RadikoClient()` として利用することをおすすめします。
-
 /**
  * 放送局情報を表すインターフェース。
  */
@@ -249,8 +244,10 @@ export class RadikoClient {
    * @returns 録音されたファイルのフルパスを含む`Promise<string>`。
    */
   public async recordProgram(
+    program: RadikoProgram, // new param
     stationId: string,
     programTitle: string,
+    programImage: string | undefined,
     startTime: string,
     endTime: string,
     saveDirectory: string,
@@ -259,17 +256,69 @@ export class RadikoClient {
       throw new Error("Cannot record program. Authentication token not found. Please authenticate first.");
     }
 
+    const safeProgramTitle = programTitle.replace(/[/:*?"<>|]/g, "_");
+    const filename = `${stationId}_${safeProgramTitle}_${startTime}.m4a`;
+    const finalOutputPath = join(saveDirectory, filename);
+
+    // If no image, just record and return.
+    if (!programImage) {
+      return this.executeRecording(stationId, startTime, endTime, finalOutputPath);
+    }
+
+    // With image, record to a temporary file first.
+    const { tmpdir } = await import("os");
+    const { writeFile, rm, rename } = await import("fs/promises");
+    const tempAudioPath = join(tmpdir(), `radiko_temp_${Date.now()}.m4a`);
+
+    await this.executeRecording(stationId, startTime, endTime, tempAudioPath);
+
+    let tempImagePath: string | undefined;
+    try {
+      // Download image to a temporary file
+      const imageResponse = await fetch(programImage);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to download cover image: ${imageResponse.statusText}`);
+      }
+      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+      const tempImageExt = programImage.split(".").pop()?.split("?")[0] || "jpg";
+      tempImagePath = join(tmpdir(), `radiko_cover_${Date.now()}.${tempImageExt}`);
+      await writeFile(tempImagePath, imageBuffer);
+      console.log(`Cover image downloaded to: ${tempImagePath}`);
+
+      // Add cover image and metadata
+      await this.addMetadata(
+        tempAudioPath,
+        finalOutputPath,
+        programTitle,
+        program.pfm, // artist
+        program.title, // album
+        tempImagePath,
+      );
+
+      return finalOutputPath;
+    } catch (error) {
+      console.error(`Failed to add cover image or metadata: {error}. The recording will be saved without them.`);
+      // If adding metadata fails, move the temp audio file to the final destination.
+      await rename(tempAudioPath, finalOutputPath);
+      return finalOutputPath;
+    } finally {
+      // Cleanup all temporary files
+      await rm(tempAudioPath, { force: true });
+      if (tempImagePath) {
+        await rm(tempImagePath, { force: true });
+      }
+    }
+  }
+
+  private executeRecording(stationId: string, startTime: string, endTime: string, outputPath: string): Promise<string> {
+    if (!this.authToken) {
+      return Promise.reject(new Error("Authentication token not found."));
+    }
     const url = `https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=${stationId}&l=15&ft=${startTime}&to=${endTime}`;
 
     return new Promise<string>((resolve, reject) => {
-      // ファイル名として使えない文字を `_` に置換
-      const safeProgramTitle = programTitle.replace(/[/:*?"<>|]/g, "_");
-      const filename = `${stationId}_${safeProgramTitle}_${startTime}.m4a`;
-      const outputPath = join(saveDirectory, filename);
-
       const args = [
-        // "-loglevel",
-        // "error",
+        "-y",
         "-fflags",
         "+discardcorrupt",
         "-headers",
@@ -286,7 +335,6 @@ export class RadikoClient {
       const ffmpeg = spawn(this.ffmpegPath, args);
 
       ffmpeg.stderr.on("data", (data) => {
-        // ffmpegは進捗をstderrに出力することが多いため、ここではエラーとして扱わずログ出力に留めます。
         console.log(`ffmpeg: ${data}`);
       });
 
@@ -313,10 +361,13 @@ export class RadikoClient {
    * @param outputFilePath - 画像を追加した新しい音声ファイルの保存パス。**`audioFilePath`とは異なるパスを指定してください。**
    * @returns 新しいファイルのパスを含む`Promise<string>`。
    */
-  public async addCoverImage(
+  public async addMetadata(
     audioFilePath: string,
-    imageFilePath: string,
     outputFilePath: string,
+    title: string,
+    artist: string,
+    album: string,
+    imageFilePath?: string,
   ): Promise<string> {
     if (audioFilePath === outputFilePath) {
       return Promise.reject(new Error("Input and output file paths cannot be the same."));
@@ -324,44 +375,46 @@ export class RadikoClient {
 
     return new Promise<string>((resolve, reject) => {
       const args = [
-        "-y", // 出力ファイルを無条件に上書き
+        "-y", // Overwrite output file if it exists
         "-i",
         audioFilePath,
-        "-i",
-        imageFilePath,
-        "-map",
-        "0:a",
-        "-map",
-        "1:v",
-        "-c",
-        "copy",
+      ];
+
+      // Add image if provided
+      if (imageFilePath) {
+        args.push("-i", imageFilePath, "-map", "0:a", "-map", "1:v", "-c", "copy", "-disposition:1", "attached_pic");
+      }
+
+      // Add metadata
+      args.push(
+        "-metadata",
+        `title=${title}`,
+        "-metadata",
+        `artist=${artist}`,
+        "-metadata",
+        `album=${album}`,
         "-id3v2_version",
         "3",
-        "-metadata:s:v",
-        'title="Album cover"',
-        "-metadata:s:v",
-        'comment="Cover (front)"',
         outputFilePath,
-      ];
+      );
 
       const ffmpeg = spawn(this.ffmpegPath, args);
 
       ffmpeg.stderr.on("data", (data) => {
-        // ffmpegは進捗をstderrに出力することが多いため、ここではエラーとして扱わずログ出力に留めます。
         console.log(`ffmpeg: ${data}`);
       });
 
       ffmpeg.on("close", (code) => {
         if (code === 0) {
-          console.log(`カバー画像の追加が完了しました: ${outputFilePath}`);
+          console.log(`Metadata and cover image added successfully: ${outputFilePath}`);
           resolve(outputFilePath);
         } else {
-          reject(new Error(`ffmpegプロセスがエラーコード ${code} で終了しました。`));
+          reject(new Error(`ffmpeg process exited with code ${code}`));
         }
       });
 
       ffmpeg.on("error", (err) => {
-        reject(new Error(`ffmpegプロセスの開始に失敗しました: ${err.message}`));
+        reject(new Error(`Failed to start ffmpeg process: ${err.message}`));
       });
     });
   }
