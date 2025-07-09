@@ -291,7 +291,7 @@ export class RadikoClient {
         finalOutputPath,
         programTitle,
         program.pfm, // artist
-        program.title, // album
+        program.stationName, // album
         tempImagePath,
       );
 
