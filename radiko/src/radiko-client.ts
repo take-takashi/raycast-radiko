@@ -275,7 +275,8 @@ export class RadikoClient {
         console.log("番組表データをキャッシュから使用します。");
         return await readFile(cachePath, "utf-8");
       }
-    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_error) {
       // キャッシュが見つからない場合は、そのまま処理を続行してRadikoから取得
     }
 
@@ -393,7 +394,9 @@ export class RadikoClient {
 
       return finalOutputPath;
     } catch (error) {
-      console.error(`カバー画像またはメタデータの追加に失敗しました: ${error}。録音ファイルはメタデータなしで保存されます。`);
+      console.error(
+        `カバー画像またはメタデータの追加に失敗しました: ${error}。録音ファイルはメタデータなしで保存されます。`,
+      );
       // メタデータの追加に失敗した場合は、一時音声ファイルを最終的なパスに移動する
       await rename(tempAudioPath, finalOutputPath);
       return finalOutputPath;
