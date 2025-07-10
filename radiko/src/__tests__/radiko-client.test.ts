@@ -17,12 +17,12 @@ describe("RadikoClient", () => {
 
   beforeEach(() => {
     client = new RadikoClient();
-    // Reset mocks before each test
+    // 各テストの前にモックをリセット
     jest.restoreAllMocks();
   });
 
   describe("parseStationListXml", () => {
-    it("should parse station list XML correctly", () => {
+    it("放送局リストのXMLを正しくパースできること", () => {
       const stations: Station[] = RadikoClient.parseStationListXml(stationXmlData);
       expect(stations).toBeInstanceOf(Array);
       expect(stations.length).toBeGreaterThan(0);
@@ -34,7 +34,7 @@ describe("RadikoClient", () => {
   });
 
   describe("parseRadikoProgramXml", () => {
-    it("should parse program XML correctly", () => {
+    it("番組情報のXMLを正しくパースできること", () => {
       const programs: RadikoProgram[] = RadikoClient.parseRadikoProgramXml(programXmlData);
       expect(programs).toBeInstanceOf(Array);
       expect(programs.length).toBeGreaterThan(0);
@@ -53,8 +53,8 @@ describe("RadikoClient", () => {
   });
 
   describe("authenticate", () => {
-    it("should authenticate successfully and set token and area code", async () => {
-      // Mocking fetch for both auth1 and auth2
+    it("認証に成功し、トークンとエリアコードが設定されること", async () => {
+      // auth1とauth2の両方のfetchをモックする
       const mockAuth1Response = {
         ok: true,
         headers: new Map([
@@ -79,25 +79,25 @@ describe("RadikoClient", () => {
 
       expect(result.authToken).toBe("test-auth-token");
       expect(result.areaCode).toBe("JP13");
-      // @ts-expect-error test private property
+      // @ts-expect-error privateプロパティをテスト
       expect(client.authToken).toBe("test-auth-token");
-      // @ts-expect-error test private property
+      // @ts-expect-error privateプロパティをテスト
       expect(client.areaCode).toBe("JP13");
 
-      // Check if fetch was called correctly
+      // fetchが正しく呼び出されたか確認
       expect(fetchSpy).toHaveBeenCalledTimes(2);
       expect(fetchSpy.mock.calls[0][0]).toBe("https://radiko.jp/v2/api/auth1");
       expect(fetchSpy.mock.calls[1][0]).toBe("https://radiko.jp/v2/api/auth2");
     });
 
-    it("should throw an error if auth1 fails", async () => {
+    it("auth1に失敗した場合、エラーがスローされること", async () => {
       const mockAuth1Response = { ok: false };
       jest.spyOn(global, "fetch").mockResolvedValueOnce(mockAuth1Response as Response);
 
       await expect(client.authenticate()).rejects.toThrow("Radikoの認証(auth1)に失敗しました。");
     });
 
-    it("should throw an error if auth2 fails", async () => {
+    it("auth2に失敗した場合、エラーがスローされること", async () => {
       const mockAuth1Response = {
         ok: true,
         headers: new Map([
@@ -121,56 +121,56 @@ describe("RadikoClient", () => {
     const stationId = "TBS";
     const date = "20230101";
 
-    it("should fetch from network if cache does not exist", async () => {
-      // 1. Mock fs.stat to throw an error (file not found)
+    it("キャッシュが存在しない場合、ネットワークから取得すること", async () => {
+      // 1. fs.statをモックしてエラーを発生させる（ファイルが見つからない）
       jest.spyOn(fs, "stat").mockRejectedValue(new Error("File not found"));
 
-      // 2. Mock fetch to return program XML
+      // 2. fetchをモックして番組XMLを返す
       const mockFetchResponse = {
         ok: true,
         text: () => Promise.resolve(programXmlData),
       };
       const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValueOnce(mockFetchResponse as Response);
 
-      // 3. Mock fs.writeFile to check if it's called
+      // 3. fs.writeFileをモックして呼び出されるか確認する
       const writeFileSpy = jest.spyOn(fs, "writeFile").mockResolvedValue(undefined);
 
-      // 4. Call the method
+      // 4. メソッドを呼び出す
       const programs = await client.getPrograms(stationId, date);
 
-      // 5. Assertions
+      // 5. アサーション
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(writeFileSpy).toHaveBeenCalledTimes(1);
       expect(programs.length).toBeGreaterThan(0);
       expect(programs[0].stationId).toBe("TBS");
     });
 
-    it("should use cache if it is valid", async () => {
-      // 1. Mock fs.stat to return a recent mtime
+    it("キャッシュが有効な場合、キャッシュを使用すること", async () => {
+      // 1. fs.statをモックして最近のmtimeを返す
       const recentMtime = new Date();
       jest.spyOn(fs, "stat").mockResolvedValue({ mtime: recentMtime } as fs.Stats);
 
-      // 2. Mock fs.readFile to return cached data
+      // 2. fs.readFileをモックしてキャッシュされたデータを返す
       jest.spyOn(fs, "readFile").mockResolvedValue(programXmlData);
 
-      // 3. Spy on fetch to ensure it's NOT called
+      // 3. fetchをスパイして呼び出されないことを確認する
       const fetchSpy = jest.spyOn(global, "fetch");
 
-      // 4. Call the method
+      // 4. メソッドを呼び出す
       const programs = await client.getPrograms(stationId, date);
 
-      // 5. Assertions
+      // 5. アサーション
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(programs.length).toBeGreaterThan(0);
       expect(programs[0].stationName).toBe("TBSラジオ");
     });
 
-    it("should fetch from network if cache is expired", async () => {
-      // 1. Mock fs.stat to return an old mtime
-      const oldMtime = new Date(new Date().getTime() - 2 * 60 * 60 * 1000); // 2 hours ago
+    it("キャッシュの有効期限が切れている場合、ネットワークから取得すること", async () => {
+      // 1. fs.statをモックして古いmtimeを返す
+      const oldMtime = new Date(new Date().getTime() - 2 * 60 * 60 * 1000); // 2時間前
       jest.spyOn(fs, "stat").mockResolvedValue({ mtime: oldMtime } as fs.Stats);
 
-      // 2. Mock fetch to return new program XML
+      // 2. fetchをモックして新しい番組XMLを返す
       const newProgramXmlData = programXmlData.replace("TBSラジオ", "TBSラジオ(New)");
       const mockFetchResponse = {
         ok: true,
@@ -178,29 +178,29 @@ describe("RadikoClient", () => {
       };
       const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValueOnce(mockFetchResponse as Response);
 
-      // 3. Mock fs.writeFile
+      // 3. fs.writeFileをモックする
       const writeFileSpy = jest.spyOn(fs, "writeFile").mockResolvedValue(undefined);
 
-      // 4. Call the method
+      // 4. メソッドを呼び出す
       const programs = await client.getPrograms(stationId, date);
 
-      // 5. Assertions
+      // 5. アサーション
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(writeFileSpy).toHaveBeenCalledTimes(1);
       expect(programs[0].stationName).toBe("TBSラジオ(New)");
     });
 
-    it("should throw an error if fetch fails and no cache exists", async () => {
-      // 1. Mock fs.stat to throw an error
+    it("fetchに失敗し、キャッシュも存在しない場合、エラーがスローされること", async () => {
+      // 1. fs.statをモックしてエラーを発生させる
       jest.spyOn(fs, "stat").mockRejectedValue(new Error("File not found"));
 
-      // 2. Mock fetch to fail
+      // 2. fetchを失敗させる
       const mockFetchResponse = { ok: false };
       jest.spyOn(global, "fetch").mockResolvedValueOnce(mockFetchResponse as Response);
 
-      // 3. Assert that it throws
+      // 3. エラーがスローされることを表明する
       await expect(client.getPrograms(stationId, date)).rejects.toThrow("Radiko番組表の取得に失敗しました。");
     });
   });
 });
-("");
+("")
