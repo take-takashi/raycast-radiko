@@ -18,6 +18,12 @@
       "title": "今日の番組表 (全放送局)",
       "description": "すべての放送局の今日の番組表を表示します",
       "mode": "view"
+    },
+    {
+      "name": "view-logs",
+      "title": "ログを表示",
+      "description": "Radiko Extensionのログを表示します",
+      "mode": "view"
     }
   ],
   "preferences": [

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { homedir } from "os";
 import { RadikoProgram, RadikoClient } from "./radiko-client";
 import { formatTime, parseRadikoDateTime, formatDate, getPastSevenDays } from "./utils";
+import { logger } from "./logger";
 
 interface Preferences {
   saveDirectory: string;
@@ -52,6 +53,7 @@ export default function Command() {
 
         setProgramsByStation(programsMap);
       } catch (error) {
+        logger.error("番組表の取得に失敗しました", error);
         await showToast({
           style: Toast.Style.Failure,
           title: "番組表の取得に失敗しました",
@@ -82,6 +84,7 @@ export default function Command() {
     });
 
     try {
+      logger.info(`録音開始: ${program.title} (${program.stationId})`);
       const preferences = getPreferenceValues<Preferences>();
       let saveDirectory = preferences.saveDirectory;
       if (saveDirectory.startsWith("~")) {
@@ -101,7 +104,9 @@ export default function Command() {
       toast.style = Toast.Style.Success;
       toast.title = "録音が完了しました";
       toast.message = `ファイル: ${outputPath}`;
+      logger.info(`録音成功: ${outputPath}`);
     } catch (error) {
+      logger.error(`録音失敗: ${program.title}`, error);
       toast.style = Toast.Style.Failure;
       toast.title = "録音に失敗しました";
       toast.message = error instanceof Error ? error.message : String(error);

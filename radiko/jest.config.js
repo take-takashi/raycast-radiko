@@ -8,4 +8,7 @@ module.exports = {
   transform: {
     ...tsJestTransformCfg,
   },
+  moduleNameMapper: {
+    "@raycast/api": "<rootDir>/src/__mocks__/@raycast/api.ts",
+  },
 };

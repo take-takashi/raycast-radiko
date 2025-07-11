@@ -3,6 +3,7 @@ import { join } from "path";
 import { spawn } from "child_process";
 import { XMLParser } from "fast-xml-parser";
 import { tmpdir } from "os";
+import { logger } from "./logger";
 
 /**
  * 放送局情報を表すインターフェース。
@@ -108,6 +109,7 @@ export class RadikoClient {
     });
 
     if (!response.ok) {
+      logger.error("Radikoの認証(auth1)に失敗しました。", response);
       throw new Error("Radikoの認証(auth1)に失敗しました。");
     }
 
@@ -123,6 +125,7 @@ export class RadikoClient {
   private getAuthTokenFromAuthResponse(auth_response: Response): string {
     const authtoken = auth_response.headers.get("X-Radiko-AuthToken");
     if (!authtoken) {
+      logger.error("レスポンスに認証トークンが見つかりませんでした。", auth_response.headers);
       throw new Error("レスポンスに認証トークンが見つかりませんでした。");
     }
     return authtoken;
@@ -139,6 +142,7 @@ export class RadikoClient {
     const lengthHeader = auth_response.headers.get("X-Radiko-KeyLength");
 
     if (!offsetHeader || !lengthHeader) {
+      logger.error("レスポンスにキーのオフセットまたは長さが見つかりませんでした。", auth_response.headers);
       throw new Error("レスポンスにキーのオフセットまたは長さが見つかりませんでした。");
     }
 
@@ -175,6 +179,7 @@ export class RadikoClient {
     });
 
     if (!response.ok) {
+      logger.error("Radikoの認証(auth2)に失敗しました。", response);
       throw new Error("Radikoの認証(auth2)に失敗しました。");
     }
 
@@ -209,6 +214,7 @@ export class RadikoClient {
   public async getStationList(areaCode?: string): Promise<Station[]> {
     const code = areaCode || this.areaCode;
     if (!code) {
+      logger.error("エリアコードが指定されておらず、認証情報からも取得できませんでした。", { areaCode: this.areaCode });
       throw new Error(
         "エリアコードが指定されておらず、認証情報からも取得できませんでした。先に認証を行うか、エリアコードを指定してください。",
       );
@@ -226,6 +232,7 @@ export class RadikoClient {
   private async fetchStationListXml(areaCode: string): Promise<string> {
     const response = await fetch(`https://radiko.jp/v2/station/list/${areaCode}.xml`);
     if (!response.ok) {
+      logger.error("Radiko放送局リストの取得に失敗しました。", { areaCode, status: response.status, statusText: response.statusText });
       throw new Error("Radiko放送局リストの取得に失敗しました。");
     }
     return response.text();
@@ -272,18 +279,20 @@ export class RadikoClient {
       const stats = await stat(cachePath);
       // キャッシュが有効期限内の場合
       if (new Date().getTime() - stats.mtime.getTime() < cacheExpiry) {
-        console.log("番組表データをキャッシュから使用します。");
+        logger.info(`番組表データをキャッシュから使用します: ${cachePath}`);
         return await readFile(cachePath, "utf-8");
       }
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_error) {
+      logger.debug(`キャッシュが見つからないか期限切れです: ${cachePath}`, _error);
       // キャッシュが見つからない場合は、そのまま処理を続行してRadikoから取得
     }
 
-    console.log("番組表データをRadikoから取得します。");
+    logger.info(`番組表データをRadikoから取得します: ${stationId}, ${date}`);
     const url = `https://radiko.jp/v3/program/station/date/${date}/${stationId}.xml`;
     const response = await fetch(url);
     if (!response.ok) {
+      logger.error("Radiko番組表の取得に失敗しました。", { stationId, date, status: response.status, statusText: response.statusText });
       throw new Error("Radiko番組表の取得に失敗しました。");
     }
     const xmlData = await response.text();
@@ -349,6 +358,7 @@ export class RadikoClient {
     saveDirectory: string,
   ): Promise<string> {
     if (!this.authToken) {
+      logger.error("録音を開始できません。認証トークンが見つかりません。");
       throw new Error("録音を開始できません。認証トークンが見つかりません。先に認証を行ってください。");
     }
 
@@ -374,13 +384,14 @@ export class RadikoClient {
       // 画像を一時ファイルにダウンロード
       const imageResponse = await fetch(programImage);
       if (!imageResponse.ok) {
+        logger.warn(`カバー画像のダウンロードに失敗しました: ${imageResponse.statusText}`, { programImage, status: imageResponse.status });
         throw new Error(`カバー画像のダウンロードに失敗しました: ${imageResponse.statusText}`);
       }
       const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
       const tempImageExt = programImage.split(".").pop()?.split("?")[0] || "jpg";
       tempImagePath = join(tmpdir(), `radiko_cover_${Date.now()}.${tempImageExt}`);
       await writeFile(tempImagePath, imageBuffer);
-      console.log(`カバー画像を一時ファイルに保存しました: ${tempImagePath}`);
+      logger.info(`カバー画像を一時ファイルに保存しました: ${tempImagePath}`);
 
       // カバー画像とメタデータを追加
       await this.addMetadata(
@@ -394,8 +405,9 @@ export class RadikoClient {
 
       return finalOutputPath;
     } catch (error) {
-      console.error(
+      logger.error(
         `カバー画像またはメタデータの追加に失敗しました: ${error}。録音ファイルはメタデータなしで保存されます。`,
+        error,
       );
       // メタデータの追加に失敗した場合は、一時音声ファイルを最終的なパスに移動する
       await rename(tempAudioPath, finalOutputPath);
@@ -420,6 +432,7 @@ export class RadikoClient {
    */
   private executeRecording(stationId: string, startTime: string, endTime: string, outputPath: string): Promise<string> {
     if (!this.authToken) {
+      logger.error("認証トークンが見つかりません。録音を実行できません。");
       return Promise.reject(new Error("認証トークンが見つかりません。"));
     }
     const url = `https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=${stationId}&l=15&ft=${startTime}&to=${endTime}`;
@@ -443,19 +456,21 @@ export class RadikoClient {
       const ffmpeg = spawn(this.ffmpegPath, args);
 
       ffmpeg.stderr.on("data", (data) => {
-        console.log(`ffmpeg: ${data}`);
+        logger.debug(`ffmpeg stderr: ${data}`);
       });
 
       ffmpeg.on("close", (code) => {
         if (code === 0) {
-          console.log(`録音が完了しました: ${outputPath}`);
+          logger.info(`録音が完了しました: ${outputPath}`);
           resolve(outputPath);
         } else {
+          logger.error(`ffmpegプロセスがエラーコード ${code} で終了しました。`, { code, outputPath });
           reject(new Error(`ffmpegプロセスがエラーコード ${code} で終了しました。`));
         }
       });
 
       ffmpeg.on("error", (err) => {
+        logger.error(`ffmpegプロセスの開始に失敗しました: ${err.message}`, err);
         reject(new Error(`ffmpegプロセスの開始に失敗しました: ${err.message}`));
       });
     });
@@ -513,19 +528,21 @@ export class RadikoClient {
       const ffmpeg = spawn(this.ffmpegPath, args);
 
       ffmpeg.stderr.on("data", (data) => {
-        console.log(`ffmpeg: ${data}`);
+        logger.debug(`ffmpeg stderr (addMetadata): ${data}`);
       });
 
       ffmpeg.on("close", (code) => {
         if (code === 0) {
-          console.log(`メタデータとカバー画像の追加に成功しました: ${outputFilePath}`);
+          logger.info(`メタデータとカバー画像の追加に成功しました: ${outputFilePath}`);
           resolve(outputFilePath);
         } else {
+          logger.error(`ffmpegプロセスがエラーコード ${code} で終了しました。(addMetadata)`, { code, outputFilePath });
           reject(new Error(`ffmpegプロセスがエラーコード ${code} で終了しました。`));
         }
       });
 
       ffmpeg.on("error", (err) => {
+        logger.error(`ffmpegプロセスの開始に失敗しました。(addMetadata): ${err.message}`, err);
         reject(new Error(`ffmpegプロセスの開始に失敗しました: ${err.message}`));
       });
     });
